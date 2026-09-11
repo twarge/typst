@@ -88,6 +88,7 @@ impl FontBook {
     }
 
     /// Try to find and load a fallback font that
+    /// - covers as much of the text as possible
     /// - is as close as possible to the font `like` (if any)
     /// - is as close as possible to the given `variant`
     /// - is suitable for shaping the given `text`
@@ -110,8 +111,9 @@ impl FontBook {
             .filter(|(_, info)| info.coverage.contains(c as u32))
             .map(|(index, _)| index);
 
-        // ... and find the best variant among them.
-        self.find_best_variant(like, variant, ids)
+        // ... and find the best variant among them, preferring the ones that
+        // also cover what follows.
+        self.find_best_variant_by(like, variant, ids, |info| covered_prefix(info, text))
     }
 
     /// Find the font in the passed iterator that
@@ -142,12 +144,28 @@ impl FontBook {
         variant: FontVariant,
         ids: impl IntoIterator<Item = usize>,
     ) -> Option<usize> {
+        self.find_best_variant_by(like, variant, ids, |_| ())
+    }
+
+    /// Like [`find_best_variant`](Self::find_best_variant), but ranks the fonts
+    /// by `rank`, and then by not being
+    /// [supplementary](FontFlags::SUPPLEMENTARY), before all of the criteria
+    /// listed there.
+    fn find_best_variant_by<T: Ord + Copy>(
+        &self,
+        like: Option<&FontInfo>,
+        variant: FontVariant,
+        ids: impl IntoIterator<Item = usize>,
+        rank: impl Fn(&FontInfo) -> T,
+    ) -> Option<usize> {
         let mut best = None;
         let mut best_score = None;
 
         for id in ids {
             let current = &self.infos[id];
             let score = (
+                rank(current),
+                !current.flags.contains(FontFlags::SUPPLEMENTARY),
                 like.map(|like| similarity(current, like)),
                 Reverse(distance(current, variant)),
                 current.flags.contains(FontFlags::VARIABLE),
@@ -162,6 +180,27 @@ impl FontBook {
         best
     }
 }
+
+/// How many of the text's leading chars the font covers, skipping
+/// spaces and default_ignorable.
+///
+/// Fallback ranks fonts by this first so that a word stays in one font whenever
+/// some font can shape all of it. Persian, specifically, needs this because
+/// Arabic fonts macOS ships are mostly missing the four Persian letters
+/// (U+06CC FARSI YEH, U+06A9 KEHEH, U+06AF GAF, U+0686 TCHEH)
+/// so "دنیا" came out as "دن" plus a detached "ی" plus "ا".
+///
+/// Counting stops at [`COVERAGE_PROBE`] chars and runs once per candidate font.
+fn covered_prefix(info: &FontInfo, text: &str) -> usize {
+    text.chars()
+        .filter(|&c| !c.is_whitespace() && !is_default_ignorable(c))
+        .take(COVERAGE_PROBE)
+        .take_while(|&c| info.coverage.contains(c as u32))
+        .count()
+}
+
+/// How far [`covered_prefix`] looks into the text when
+const COVERAGE_PROBE: usize = 32;
 
 /// Determines a metric that scores higher if `other` is similar to `self`.
 /// This is used to pick a closely matching face during font fallback.

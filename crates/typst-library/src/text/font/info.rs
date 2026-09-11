@@ -39,6 +39,10 @@ bitflags::bitflags! {
         const MATH = 1 << 2;
         /// Font face has an fvar table
         const VARIABLE = 1 << 3;
+        /// The font supplements the ones already installed: it exists to cover
+        /// characters they leave undrawable, so fallback reaches for it only
+        /// when nothing else covers the text as well.
+        const SUPPLEMENTARY = 1 << 4;
     }
 }
 
