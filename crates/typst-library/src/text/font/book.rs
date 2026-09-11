@@ -89,6 +89,7 @@ impl FontBook {
 
     /// Try to find and load a fallback font that
     /// - covers as much of the text as possible
+    /// - is a text font rather than a math one
     /// - is as close as possible to the font `like` (if any)
     /// - is as close as possible to the given `variant`
     /// - is suitable for shaping the given `text`
@@ -112,8 +113,10 @@ impl FontBook {
             .map(|(index, _)| index);
 
         // ... and find the best variant among them, preferring the ones that
-        // also cover what follows.
-        self.find_best_variant_by(like, variant, ids, |info| covered_prefix(info, text))
+        // also cover what follows, and text fonts over math ones.
+        self.find_best_variant_by(like, variant, ids, |info| {
+            (covered_prefix(info, text), !info.flags.contains(FontFlags::MATH))
+        })
     }
 
     /// Find the font in the passed iterator that
@@ -199,7 +202,8 @@ fn covered_prefix(info: &FontInfo, text: &str) -> usize {
         .count()
 }
 
-/// How far [`covered_prefix`] looks into the text when
+/// How far [`covered_prefix`] looks into the text. Coverage lookups are a linear
+/// scan, and a word's worth of characters is enough to keep it in one font.
 const COVERAGE_PROBE: usize = 32;
 
 /// Determines a metric that scores higher if `other` is similar to `self`.
